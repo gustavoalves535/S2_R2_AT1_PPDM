@@ -1,0 +1,470 @@
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useState, useEffect } from 'react';
+import {
+  StyleSheet,
+  Text,
+  View,
+  FlatList,
+  TouchableOpacity,
+  ActivityIndicator,
+  Alert,
+  RefreshControl,
+  StatusBar,
+  Platform,
+} from 'react-native';
+
+import {
+  Product,
+  CreateProductDTO,
+  UpdateProductDTO,
+} from './src/types/Product';
+
+import { productService } from './src/services/ProductServices';
+import { ProductModal } from './src/components/ProductModal';
+
+export default function App() {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
+
+  const [modalVisible, setModalVisible] = useState<boolean>(false);
+  const [productToEdit, setProductToEdit] = useState<Product | null>(null);
+
+  const fetchProducts = async () => {
+    try {
+      setLoading(true);
+
+      const response = await productService.getProducts();
+
+      setProducts(response);
+    } catch (error) {
+      Alert.alert('Erro', 'Não foi possível carregar os produtos.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchProducts();
+  }, []);
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    fetchProducts();
+  };
+
+  // Abrir modal para criar um novo produto
+  const handleOpenCreateModal = () => {
+    setProductToEdit(null);
+    setModalVisible(true);
+  };
+
+  // Abrir modal para editar um produto
+  const handleOpenEditModal = (product: Product) => {
+    setProductToEdit(product);
+    setModalVisible(true);
+  };
+
+  // Salvar produto
+  const handleSaveProduct = async (
+    productData: CreateProductDTO | UpdateProductDTO,
+    id?: number | string
+  ) => {
+    try {
+      setLoading(true);
+
+      if (id !== undefined && id !== null) {
+        await productService.updateProduct(id, productData);
+      } else {
+        await productService.createProduct(productData);
+      }
+
+      setModalVisible(false);
+      setProductToEdit(null);
+
+      await fetchProducts();
+    } catch (error) {
+      Alert.alert('Erro', 'Não foi possível salvar o produto.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Excluir produto
+  const handleDeleteProduct = (product: Product) => {
+    if (!product.id) return;
+
+    Alert.alert(
+      'Confirmar Exclusão',
+      `Tem certeza que deseja excluir ${product.nome}?`,
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+        {
+          text: 'Excluir',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setLoading(true);
+
+              await productService.deleteProduct(product.id);
+
+              Alert.alert(
+                'Sucesso',
+                'Produto excluído com sucesso!'
+              );
+
+              await fetchProducts();
+            } catch (error) {
+              Alert.alert(
+                'Erro',
+                'Não foi possível excluir o produto.'
+              );
+            } finally {
+              setLoading(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const formatPrice = (value: number) => {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+    }).format(value || 0);
+  };
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.title}>Produtos</Text>
+
+          <Text style={styles.subtitle}>
+            Gerenciamento de Estoque & catálogo
+          </Text>
+        </View>
+
+        <TouchableOpacity
+          style={styles.newProductButton}
+          onPress={handleOpenCreateModal}
+        >
+          <Text style={styles.newProductButtonText}>
+            + Novo produto
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {loading && !refreshing ? (
+        <View style={styles.centerContainer}>
+          <ActivityIndicator
+            size="large"
+            color="#2563EB"
+          />
+
+          <Text style={styles.loadingText}>
+            Carregando produtos...
+          </Text>
+        </View>
+      ) : (
+        <FlatList
+          data={products}
+          keyExtractor={(item, index) =>
+            item.id ? String(item.id) : String(index)
+          }
+          contentContainerStyle={styles.list}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+            />
+          }
+          renderItem={({ item }) => (
+            <View style={styles.card}>
+              <View style={styles.headerRow}>
+                <View style={styles.productInfo}>
+                  <Text style={styles.productName}>
+                    {item.nome}
+                  </Text>
+
+                  <Text style={styles.categoryBadgeText}>
+                    {item.categoria}
+                  </Text>
+                </View>
+
+                <Text style={styles.priceText}>
+                  {formatPrice(Number(item.preco))}
+                </Text>
+              </View>
+
+              <Text style={styles.descriptionText}>
+                {item.descricao || 'Sem descrição cadastrada'}
+              </Text>
+
+              <View style={styles.footerRow}>
+                <View style={styles.stockContainer}>
+                  <View
+                    style={[
+                      styles.stockDot,
+                      item.quantidade > 0
+                        ? styles.stockDotActive
+                        : styles.stockDotInactive,
+                    ]}
+                  />
+
+                  <Text style={styles.stockText}>
+                    Estoque:
+                    <Text style={styles.stockValue}>
+                      {' '}
+                      {item.quantidade} un.
+                    </Text>
+                  </Text>
+                </View>
+
+                <View style={styles.actions}>
+                  <TouchableOpacity
+                    style={[
+                      styles.actionButton,
+                      styles.editButton,
+                    ]}
+                    onPress={() => handleOpenEditModal(item)}
+                  >
+                    <Text style={styles.editButtonText}>
+                      Editar
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.actionButton,
+                      styles.deleteButton,
+                    ]}
+                    onPress={() => handleDeleteProduct(item)}
+                  >
+                    <Text style={styles.deleteButtonText}>
+                      Excluir
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          )}
+        />
+      )}
+
+      <ProductModal
+        visible={modalVisible}
+        productToEdit={productToEdit}
+        onClose={() => {
+          setModalVisible(false);
+          setProductToEdit(null);
+        }}
+        onSave={handleSaveProduct}
+      />
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+    paddingTop:
+      Platform.OS === 'android'
+        ? StatusBar.currentHeight
+        : 0,
+  },
+
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+
+  title: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+
+  subtitle: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+
+  newProductButton: {
+    backgroundColor: '#2563EB',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    elevation: 2,
+    shadowColor: '#2563EB',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+
+  newProductButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+
+  list: {
+    padding: 16,
+  },
+
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 14,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#F0F2F5',
+  },
+
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+
+  productInfo: {
+    flex: 1,
+    marginRight: 10,
+  },
+
+  productName: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#1E293B',
+    marginBottom: 6,
+  },
+
+  categoryBadgeText: {
+    color: '#2563EB',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+    overflow: 'hidden',
+  },
+
+  priceText: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+
+  descriptionText: {
+    fontSize: 14,
+    color: '#64748B',
+    marginBottom: 14,
+    lineHeight: 20,
+  },
+
+  footerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+
+  stockContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+
+  stockDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    marginRight: 6,
+  },
+
+  stockDotActive: {
+    backgroundColor: '#22C55E',
+  },
+
+  stockDotInactive: {
+    backgroundColor: '#EF4444',
+  },
+
+  stockText: {
+    fontSize: 14,
+    color: '#64748B',
+  },
+
+  stockValue: {
+    fontWeight: '700',
+    color: '#1E293B',
+  },
+
+  actions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+
+  actionButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+
+  editButton: {
+    backgroundColor: '#EFF6FF',
+  },
+
+  editButtonText: {
+    color: '#2563EB',
+    fontWeight: '600',
+  },
+
+  deleteButton: {
+    backgroundColor: '#FEF2F2',
+  },
+
+  deleteButtonText: {
+    color: '#DC2626',
+    fontWeight: '600',
+  },
+
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+
+  loadingText: {
+    marginTop: 12,
+    fontSize: 15,
+    color: '#64748B',
+  },
+});
